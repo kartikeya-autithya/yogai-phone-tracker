@@ -1,50 +1,70 @@
-# YogAI Phone Tracker
+# YogAI Phone Tracker — Phase 2
 
-Mobile-first web app that will use a phone camera and MediaPipe Pose Landmarker to follow a person and steer a two-axis Arduino servo mount. It is a standalone project, separate from the production YogAI website.
+Phase 2 adds a live phone-camera preview and on-device MediaPipe Pose Landmarker tracking. It draws pose landmarks, a visible-person bounding box, the bounding-box centre, a ±8% centre dead zone, tracking state, FPS and simulated yaw/tilt values.
 
-**Current status: Phase 1 (repository, build, deployment, compatibility screen).** Camera, pose detection, tracking and Arduino communication are not implemented yet. See `docs/ARCHITECTURE.md` for the plan.
-
-Nothing in this repository has been tested on the physical mount. Items are marked as tested only in `docs/TEST_CHECKLIST.md` after you run them.
+**No Arduino commands are sent in Phase 2.** USB/serial control is a later phase. The simulated angles are only a visual preview.
 
 ## Requirements
 
-- Node.js 20.19 or newer (22 recommended) and npm
-- Git
-- Arduino IDE (to flash the firmware yourself; the web app never flashes it)
+- Node.js 20.19+ (Node 24 LTS is suitable)
+- npm
+- A modern browser with camera access and WebAssembly
+- HTTPS when deployed; `localhost` is also a secure context for local development
+- Internet access on the first model/runtime load (MediaPipe package is installed via npm; WASM and the lightweight `.task` model are loaded from pinned/public Google-hosted URLs)
 
-## Run locally
+## Install and run
 
 ```bash
 npm install
-npm run dev        # http://localhost:5173 (also shown on your LAN address)
-npm test           # unit tests (Node built-in test runner)
-npm run build      # production build into dist/
-npm run preview    # serve dist/ locally
+npm test
+npm run build
+npm run dev
 ```
 
-Camera and USB APIs need HTTPS, except on `localhost`. Testing on a phone therefore needs the GitHub Pages deployment (HTTPS) or a tunnel.
+Open the local URL printed by Vite, normally `http://localhost:5173/`.
 
-## Deploy to GitHub Pages
+## Use the camera test
 
-1. Push to the `main` branch of your `yogai-phone-tracker` repository.
-2. In the repository: Settings → Pages → Build and deployment → Source: **GitHub Actions**.
-3. The workflow in `.github/workflows/deploy.yml` runs the tests, builds, and publishes. The app is then served at `https://<your-username>.github.io/yogai-phone-tracker/`.
-4. After your first `npm install`, commit the generated `package-lock.json` so CI can use `npm ci`.
+1. Tap **Start Camera & Tracking**.
+2. Grant camera permission.
+3. Keep the phone still for this phase. The front camera is selected by default; choose Rear camera to switch.
+4. Stand far enough away for your upper body and hips to be visible.
+5. Watch the pose skeleton, bounding box, centre point, dead-zone rectangle, tracking state, FPS and simulated angles.
+6. Tap **Stop Camera** to stop all camera tracks.
 
-## Firmware
+The image is processed locally in the browser. The page does not upload camera frames or pose coordinates to a YogAI server. MediaPipe's package documentation notes that the SDK may send usage/performance metrics; see its privacy notice: https://goo.gle/mediapipe-privacy.
 
-`public/firmware/servo_tracker.ino` is a byte-for-byte copy of your tested sketch. Flash it with the Arduino IDE (Board: Arduino Uno). Its limits (yaw 45–135, tilt 60–120, neutral 90/90, 115200 baud, `yaw,tilt\n`) are mirrored in `src/utils/configuration.js`. If you change the sketch limits, change them there too.
+## Model and runtime
 
-## Safety
+- JS package: `@mediapipe/tasks-vision` pinned to `1.2.2`.
+- WASM runtime: jsDelivr URL pinned to the same package version.
+- Model: MediaPipe Pose Landmarker Lite hosted by Google Storage.
+- The app attempts GPU delegation first and falls back to CPU if GPU setup fails.
 
-- Power the servos from an external regulated 5–6 V supply, not the Uno 5V pin or phone USB.
-- Connect the supply ground to the Arduino GND.
-- Keep conservative limits and keep clear of the joints. See `docs/WIRING.md`.
+The model is downloaded by the browser when first needed. Internet access is required until browser caching is available.
 
-## Documentation
+## Phase 2 limits
 
-- `docs/ARCHITECTURE.md` modules, data flow, phases
-- `docs/CONFIGURATION.md` every setting, default and firmware relationship
-- `docs/WIRING.md` wiring and power
-- `docs/COMPATIBILITY.md` phone and browser support, with what is known and unknown
-- `docs/TEST_CHECKLIST.md` what to test at each phase
+- No Arduino connection or servo commands are implemented.
+- Yaw/tilt values are estimates for display only; they are not a closed-loop motor controller.
+- Tracking uses the centre of the visible pose bounding box. The estimate can shift when the person changes pose or parts of the body leave the frame.
+- Camera detection is synchronous in the page thread and throttled by the device's real frame rate. If the phone becomes hot or sluggish, stop the camera and report the FPS/device behaviour.
+- For phone-mounted closed-loop tracking, later phases will use live camera feedback and a separate tested controller/transport.
+
+## Deploy
+
+The existing GitHub Actions workflow continues to run tests, build Vite, and deploy `dist` to GitHub Pages on pushes to `main`.
+
+```bash
+git status
+git add .
+git commit -m "Phase 2: add phone camera and MediaPipe pose tracking"
+git push
+```
+
+Ensure repository Settings → Pages → Source is set to **GitHub Actions**.
+
+## Official references
+
+- MediaPipe web setup: https://developers.google.com/edge/mediapipe/solutions/setup_web
+- MediaPipe Pose Landmarker for Web: https://developers.google.com/edge/mediapipe/solutions/vision/pose_landmarker/web_js

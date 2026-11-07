@@ -4,6 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#0a100d" />
+  <meta name="description" content="On-device YogAI phone camera pose tracking preview." />
   <title>YogAI Phone Tracker</title>
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" href="./icons/icon-192.png" />
@@ -13,10 +14,64 @@
 <body>
   <header class="topbar">
     <h1>YogAI Phone Tracker</h1>
-    <span class="badge" id="buildBadge">Phase 1</span>
+    <span class="badge" id="buildBadge">Phase 2</span>
   </header>
 
   <main class="page">
+    <section class="card camera-card" aria-labelledby="cameraTitle">
+      <div class="section-heading">
+        <div>
+          <h2 id="cameraTitle">Live camera &amp; pose tracking</h2>
+          <p class="muted">On-device MediaPipe Pose Landmarker · No Arduino commands in this phase</p>
+        </div>
+        <span id="trackingState" class="state-pill muted">STOPPED</span>
+      </div>
+
+      <div class="camera-toolbar">
+        <label class="select-label" for="cameraSelect">Camera</label>
+        <select id="cameraSelect" disabled>
+          <option value="user" selected>Front camera</option>
+          <option value="environment">Rear camera</option>
+        </select>
+      </div>
+
+      <div class="camera-viewport" id="cameraViewport">
+        <video id="cameraVideo" playsinline muted autoplay aria-label="Live camera preview"></video>
+        <canvas id="poseOverlay" aria-hidden="true"></canvas>
+        <div class="camera-placeholder" id="cameraPlaceholder">
+          <div class="camera-placeholder-icon">◎</div>
+          <strong>Camera is off</strong>
+          <span>Tap Start Camera to request permission and load MediaPipe.</span>
+        </div>
+      </div>
+
+      <div class="camera-actions">
+        <button id="startCamera" class="button primary" type="button">Start Camera &amp; Tracking</button>
+        <button id="stopCamera" class="button secondary" type="button" disabled>Stop Camera</button>
+      </div>
+      <p id="cameraMessage" class="camera-message info" role="status" aria-live="polite">Ready. Camera access starts only after you tap the button.</p>
+
+      <div class="metrics-grid">
+        <div class="metric"><span>Simulated yaw</span><strong id="yawValue">90°</strong></div>
+        <div class="metric"><span>Simulated tilt</span><strong id="tiltValue">90°</strong></div>
+        <div class="metric"><span>Person centre</span><strong id="positionValue">—</strong></div>
+        <div class="metric"><span>Detection speed</span><strong id="fpsValue">— FPS</strong></div>
+        <div class="metric"><span>Delegate</span><strong id="delegateValue">—</strong></div>
+      </div>
+      <p class="muted small-note">The angle values are a visual preview only. They are not sent to the Arduino. Keep the phone still for this camera test; USB control comes in Phase 3.</p>
+    </section>
+
+    <section class="card" aria-labelledby="legendTitle">
+      <h2 id="legendTitle">Tracking overlay</h2>
+      <div class="legend-list">
+        <span><i class="legend-dot landmark"></i> Body landmarks</span>
+        <span><i class="legend-dot person"></i> Person bounding box</span>
+        <span><i class="legend-dot centre"></i> Person centre</span>
+        <span><i class="legend-box"></i> ±8% centre dead zone</span>
+      </div>
+      <p class="muted">Try standing far enough from the phone for your upper body and hips to remain visible. The first version tracks the centre of the visible pose bounding box.</p>
+    </section>
+
     <section class="card" aria-labelledby="compatTitle">
       <h2 id="compatTitle">Device compatibility</h2>
       <p class="muted" id="compatIntro">Checking this browser…</p>
@@ -24,17 +79,14 @@
     </section>
 
     <section class="card" aria-labelledby="usbTitle">
-      <h2 id="usbTitle">USB connection to the Arduino</h2>
+      <h2 id="usbTitle">Arduino connection (Phase 3)</h2>
       <p id="usbSummary"></p>
       <p class="muted" id="usbOtg"></p>
     </section>
 
     <section class="card" aria-labelledby="cfgTitle">
-      <h2 id="cfgTitle">Default settings (match the firmware)</h2>
-      <div class="table-wrap">
-        <table class="cfg-table" id="cfgTable"></table>
-      </div>
-      <p class="muted" id="cfgWarnings" hidden></p>
+      <h2 id="cfgTitle">Default settings</h2>
+      <div class="table-wrap"><table class="cfg-table" id="cfgTable"></table></div>
     </section>
 
     <section class="card" aria-labelledby="envTitle">

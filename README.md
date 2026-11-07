@@ -1,4 +1,4 @@
-# YogAI Phone Tracker — Phase 3.2
+# YogAI Phone Tracker — Phase 3.3
 
 Phase 3.1 adds **faster, adjustable USB servo control** on top of the Phase 3 Arduino Uno connection to the Phase 2 phone-camera and MediaPipe Pose Landmarker application. The phone browser connects to an already-programmed Uno using Web Serial, sends `yaw,tilt\n` commands at a bounded rate, and can run an incremental closed-loop controller because the phone camera moves with the servo mount.
 
@@ -140,3 +140,17 @@ Start with the phone detached and an unobstructed mount. Increase speed or gain 
 - `minStepDeg`, `minSendDeltaDeg`, `minBboxFraction` and `reconnectIntervalMs` exist in the settings but are not used by the app yet (the bounding-box check uses a fixed 5%, and the app rate-limits sends at 35 ms).
 - The model and MediaPipe runtime download at start-up (Google storage and jsDelivr), so the app needs internet on first use; camera video stays on the device.
 - Control uses display coordinates, so the yaw direction that works for the rear camera may be reversed for the front camera. Calibrate direction for the camera you will actually mount.
+
+
+## Phase 3.3 — WebUSB transport for Android
+
+**Problem observed on the Galaxy A14 (Android 15, Chrome 157):** the app reported Web Serial present, but the Connect chooser said "No compatible devices found", while ArduinoDroid could use the same Uno. Chromium's Web Serial for Android is documented as available on Android 17 and later, and on other devices the API exists but always returns an empty list of wired ports. So `navigator.serial` being present says nothing about whether USB devices will be listed.
+
+**Change:** a new `WebUsbCdcTransport` talks to the Uno's ATmega16U2 bridge (a standard USB CDC-ACM device) through WebUSB, which Chrome on Android implements with the same Android USB host API that ArduinoDroid uses. It has the same interface as the Web Serial transport (115200 baud, `yaw,tilt\n`, 2.5 s boot wait), so the controller, UI and firmware are unchanged.
+
+- **Connect Arduino** now chooses automatically: WebUSB on Android, native Web Serial on desktop.
+- **Connect via WebUSB** forces the WebUSB path on any browser that has it.
+- Only standard CDC-ACM bridges are supported (Uno R3 with 16U2, Leonardo, Mega). CH340, CP210x and FTDI clones are rejected with an explanatory message.
+- Before connecting, close ArduinoDroid and the Arduino IDE, because only one app can hold the device. If Chrome reports it cannot claim the interface, unplug and replug the Uno.
+
+**Status:** 50 unit tests pass against a mocked USB device. It has **not** been tested on the A14 or the real Uno. If WebUSB also fails on the phone, the fallback is to wrap this same web app in a small native Android shell (for example Capacitor) with the usb-serial-for-android library, which is the code ArduinoDroid-style apps rely on.

@@ -11,6 +11,8 @@ import {
   clamp,
 } from './tracking-controller.js';
 import { WebSerialTransport } from './serial/web-serial-transport.js';
+import { WebUsbCdcTransport } from './serial/web-usb-cdc-transport.js';
+import { chooseUsbTransport } from './serial/transport-selection.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -131,6 +133,7 @@ function setServoMessage(message, kind = 'info') {
 function updateControlButtons() {
   const connected = !!serialTransport?.connected;
   $('connectArduino').disabled = connected || busy;
+  $('connectArduinoUsb').disabled = connected || busy;
   $('disconnectArduino').disabled = !connected;
   $('centreServos').disabled = !connected || servoTrackingActive;
   $('yawMinus').disabled = !connected || servoTrackingActive;
@@ -388,20 +391,31 @@ async function switchCamera() {
   }
 }
 
-async function connectArduino() {
+async function connectArduino(requestedKind = 'auto') {
   if (serialTransport?.connected || busy) return;
   if (serialTransport && !serialTransport.connected) {
     await serialTransport.disconnect().catch(() => {});
     serialTransport = null;
   }
-  if (!('serial' in navigator) || !navigator.serial?.requestPort) {
-    setSerialStatus('Web Serial is unavailable here. Use a supported Chrome browser or a native Android USB app.', 'error');
+  const transportKind = requestedKind === 'auto' ? chooseUsbTransport() : requestedKind;
+  if (transportKind === 'none') {
+    setSerialStatus('Neither Web Serial nor WebUSB is available here. Use desktop Chrome/Edge or Chrome on Android over HTTPS.', 'error');
+    return;
+  }
+  if (transportKind === 'web-usb' && !navigator.usb?.requestDevice) {
+    setSerialStatus('WebUSB is unavailable in this browser.', 'error');
+    return;
+  }
+  if (transportKind === 'web-serial' && !navigator.serial?.requestPort) {
+    setSerialStatus('Web Serial is unavailable in this browser.', 'error');
     return;
   }
 
   busy = true;
   $('connectArduino').disabled = true;
-  serialTransport = new WebSerialTransport({
+  $('connectArduinoUsb').disabled = true;
+  const TransportClass = transportKind === 'web-usb' ? WebUsbCdcTransport : WebSerialTransport;
+  serialTransport = new TransportClass({
     baudRate: FIRMWARE_LIMITS.baud,
     bootWaitMs: settings.arduinoBootWaitMs,
     onStatus: (message, kind) => {
@@ -432,7 +446,7 @@ async function connectArduino() {
     setServoMessage('Connected. First test the Centre and small manual jog buttons with the phone detached.', 'success');
   } catch (error) {
     const cancelled = error?.name === 'NotFoundError' || error?.name === 'AbortError';
-    setSerialStatus(cancelled ? 'Port selection cancelled. No device connected.' : `Connection failed: ${error?.message || error}`, cancelled ? 'info' : 'error');
+    setSerialStatus(cancelled ? 'No device was selected, or the chooser listed no compatible device. If the list was empty, try the other Connect button.' : `Connection failed: ${error?.message || error}`, cancelled ? 'info' : 'error');
     serialTransport = null;
   } finally {
     busy = false;
@@ -554,7 +568,8 @@ function startApp() {
   $('startCamera').addEventListener('click', startCamera);
   $('stopCamera').addEventListener('click', stopCamera);
   $('cameraSelect').addEventListener('change', switchCamera);
-  $('connectArduino').addEventListener('click', connectArduino);
+  $('connectArduino').addEventListener('click', () => connectArduino('auto'));
+  $('connectArduinoUsb').addEventListener('click', () => connectArduino('web-usb'));
   $('disconnectArduino').addEventListener('click', disconnectArduino);
   $('centreServos').addEventListener('click', centreServos);
   $('yawMinus').addEventListener('click', () => nudgeAxis('yaw', -1));

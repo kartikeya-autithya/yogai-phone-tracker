@@ -1,4 +1,4 @@
-// Pure tracking math used by Phase 2's visual preview and later servo control.
+// Pure tracking math used by the camera preview and the closed-loop servo controller.
 // No DOM, camera, MediaPipe, or serial dependencies live in this module.
 
 export const POSE_CONNECTIONS = Object.freeze([
@@ -113,6 +113,22 @@ export function createServoTrackingController(settings, initialAngles = {}) {
     const y = clamp(centerY, 0, 1);
     const cfg = activeSettings;
     const alpha = cfg.emaAlpha;
+
+    // After the person has been unseen for longer than reacquireResetS, forget the
+    // old smoothed position so it cannot drag the first new samples toward where the
+    // person used to be (same behaviour as tracker.py). The per-tick speed limit
+    // then keeps the move gradual.
+    const gapS = lastUpdateMs === null ? 0 : (timestampMs - lastUpdateMs) / 1000;
+    const reacquired = lastUpdateMs !== null && gapS > cfg.reacquireResetS;
+    if (reacquired) {
+      filteredX = null;
+      filteredY = null;
+    }
+    const dt = lastUpdateMs === null || reacquired
+      ? 1 / cfg.controlHz
+      : clamp(gapS, 0, 0.15);
+    lastUpdateMs = timestampMs;
+
     if (filteredX === null || filteredY === null) {
       filteredX = x;
       filteredY = y;
@@ -121,10 +137,6 @@ export function createServoTrackingController(settings, initialAngles = {}) {
       filteredY += alpha * (y - filteredY);
     }
 
-    const dt = lastUpdateMs === null
-      ? 1 / cfg.controlHz
-      : clamp((timestampMs - lastUpdateMs) / 1000, 0, 0.15);
-    lastUpdateMs = timestampMs;
 
     const errorX = filteredX - 0.5;
     const errorY = filteredY - 0.5;

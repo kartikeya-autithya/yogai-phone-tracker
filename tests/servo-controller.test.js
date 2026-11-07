@@ -78,3 +78,29 @@ test('controller accepts live response settings without being recreated', () => 
   assert.ok(controller.getAngles().yaw > before);
   assert.ok(controller.getAngles().yaw <= DEFAULT_SETTINGS.yawMax);
 });
+
+
+test('smoothing restarts after the person has been unseen longer than reacquireResetS', () => {
+  const controller = makeController({ emaAlpha: 0.15 });
+  controller.update({ centerX: 0.1, centerY: 0.5, timestampMs: 1000 });
+  // Person disappears for 2 s and reappears near the centre.
+  const result = controller.update({ centerX: 0.5, centerY: 0.5, timestampMs: 3000 });
+  assert.equal(result.filteredX, 0.5);
+  assert.equal(result.outsideDeadZone, false);
+});
+
+test('short gaps keep the smoothed position', () => {
+  const controller = makeController({ emaAlpha: 0.15 });
+  controller.update({ centerX: 0.1, centerY: 0.5, timestampMs: 1000 });
+  const result = controller.update({ centerX: 0.5, centerY: 0.5, timestampMs: 1100 });
+  assert.ok(result.filteredX < 0.5);
+});
+
+test('the first move after reacquisition is bounded by the speed limit', () => {
+  const controller = makeController({ maxSpeedDegPerS: 90 });
+  controller.update({ centerX: 0.9, centerY: 0.5, timestampMs: 1000 });
+  const before = controller.getAngles().yaw;
+  controller.update({ centerX: 0.95, centerY: 0.5, timestampMs: 10000 });
+  const after = controller.getAngles().yaw;
+  assert.ok(Math.abs(after - before) <= Math.ceil(90 / DEFAULT_SETTINGS.controlHz) + 1);
+});

@@ -51,7 +51,7 @@ The matching sketch is `public/firmware/servo_tracker.ino`:
 - Uses the visible pose bounding-box centre as the tracked point.
 - The front camera display is mirrored; controller coordinates are transformed to match the displayed image.
 - Applies an EMA to the centre.
-- Outside the ±8% dead zone, a proportional velocity is integrated into yaw and tilt targets.
+- Outside the ±6% dead zone, a proportional velocity is integrated into yaw and tilt targets.
 - Host speed and angle limits are clamped before commands are sent.
 - If the person is not detected, no command is sent; the Arduino keeps its most recent target.
 - Manual jog controls send 5-degree changes, while Centre sends the configured neutral angles.

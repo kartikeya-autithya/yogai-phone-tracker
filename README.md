@@ -1,4 +1,4 @@
-# YogAI Phone Tracker — Phase 3
+# YogAI Phone Tracker — Phase 3.2
 
 Phase 3.1 adds **faster, adjustable USB servo control** on top of the Phase 3 Arduino Uno connection to the Phase 2 phone-camera and MediaPipe Pose Landmarker application. The phone browser connects to an already-programmed Uno using Web Serial, sends `yaw,tilt\n` commands at a bounded rate, and can run an incremental closed-loop controller because the phone camera moves with the servo mount.
 
@@ -10,7 +10,7 @@ Phase 3.1 adds **faster, adjustable USB servo control** on top of the Phase 3 Ar
 - Arduino response display for `READY` and `ERR`.
 - Manual yaw and tilt jog controls with selectable 2°, 5°, 10° or 15° steps plus Centre servos.
 - Explicit Start / Stop Servo Tracking controls; tracking requires both the camera and Arduino connection.
-- Closed-loop incremental control using the moving phone camera, ±8% dead zone, EMA smoothing, proportional corrections, speed limiting and firmware angle limits.
+- Closed-loop incremental control using the moving phone camera, ±6% dead zone, EMA smoothing, proportional corrections, speed limiting and firmware angle limits.
 - No commands are sent when the person is not detected; Arduino holds its last commanded target.
 - Yaw and tilt direction selectors, saved locally in the browser.
 - On serial stream loss, automatic tracking is stopped and the UI reports the disconnect.
@@ -127,3 +127,16 @@ The response panel exposes host speed (20–90°/s), yaw and tilt sensitivity (g
 The updated Arduino firmware has a 100°/s slew ceiling. **Re-upload `public/firmware/servo_tracker.ino` to the Uno** to enable the higher ceiling; an older firmware sketch still limits movement to its previous 60°/s value. Mechanical software limits remain yaw 45–135° and tilt 60–120°.
 
 Start with the phone detached and an unobstructed mount. Increase speed or gain gradually. If an SG90 chatters, vibrates, heats up or struggles, reduce the settings and stop the mechanism. These changes improve the commands sent to the servos; they cannot make the physical servo move faster than its rated speed or provide additional torque.
+
+
+## Phase 3.2 — Reacquisition fix and documentation corrections
+
+- **Reacquisition:** the controller now restarts its smoothing when the person has been unseen for longer than `reacquireResetS` (0.7 s). Before this, that setting existed but was never used, so a person reappearing elsewhere was blended with their old position. The speed limit still bounds the first move. Covered by unit tests; not yet tested with the physical mount.
+- **Dead zone:** the code default has been ±6% since Phase 3.1. Earlier text that said ±8% was out of date and has been corrected.
+- **Firmware comment:** the sketch header still mentions 270° servos, but both ranges are 180° (`YAW_RANGE_DEG`, `TILT_RANGE_DEG`). The firmware was left unchanged, so no re-upload is needed for this update.
+
+### Known gaps (not changed in 3.2)
+
+- `minStepDeg`, `minSendDeltaDeg`, `minBboxFraction` and `reconnectIntervalMs` exist in the settings but are not used by the app yet (the bounding-box check uses a fixed 5%, and the app rate-limits sends at 35 ms).
+- The model and MediaPipe runtime download at start-up (Google storage and jsDelivr), so the app needs internet on first use; camera video stays on the device.
+- Control uses display coordinates, so the yaw direction that works for the rear camera may be reversed for the front camera. Calibrate direction for the camera you will actually mount.

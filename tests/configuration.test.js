@@ -26,10 +26,12 @@ test('defaults match the firmware limits and tracker.py values', () => {
   assert.equal(DEFAULT_SETTINGS.yawNeutral, FIRMWARE_LIMITS.yawNeutral);
   assert.equal(DEFAULT_SETTINGS.tiltNeutral, FIRMWARE_LIMITS.tiltNeutral);
   assert.equal(DEFAULT_SETTINGS.baud, 115200);
-  assert.equal(DEFAULT_SETTINGS.deadZoneX, 0.08);
-  assert.equal(DEFAULT_SETTINGS.deadZoneY, 0.08);
-  assert.equal(DEFAULT_SETTINGS.emaAlpha, 0.25);
-  assert.equal(DEFAULT_SETTINGS.maxSpeedDegPerS, 40);
+  assert.equal(DEFAULT_SETTINGS.deadZoneX, 0.06);
+  assert.equal(DEFAULT_SETTINGS.deadZoneY, 0.06);
+  assert.equal(DEFAULT_SETTINGS.emaAlpha, 0.4);
+  assert.equal(DEFAULT_SETTINGS.maxSpeedDegPerS, 90);
+  assert.equal(DEFAULT_SETTINGS.gainYaw, 24);
+  assert.equal(DEFAULT_SETTINGS.gainTilt, 24);
   assert.ok(DEFAULT_SETTINGS.maxSpeedDegPerS <= FIRMWARE_LIMITS.maxSpeedDegPerS);
 });
 
@@ -69,7 +71,8 @@ test('non-numbers and invalid directions fall back to defaults', () => {
 
 test('speed cannot exceed the firmware speed and baud is fixed', () => {
   const { settings } = sanitizeSettings({ maxSpeedDegPerS: 500, baud: 9600 });
-  assert.equal(settings.maxSpeedDegPerS, FIRMWARE_LIMITS.maxSpeedDegPerS);
+  assert.equal(settings.maxSpeedDegPerS, 90);
+  assert.ok(settings.maxSpeedDegPerS <= FIRMWARE_LIMITS.maxSpeedDegPerS);
   assert.equal(settings.baud, 115200);
 });
 
@@ -80,16 +83,30 @@ test('save, load and reset round-trip through storage', () => {
   assert.equal(loaded.deadZoneX, 0.12);
   assert.equal(loaded.yawDirection, -1);
   const reset = resetSettings(storage);
-  assert.equal(reset.settings.deadZoneX, 0.08);
-  assert.equal(loadSettings(storage).settings.deadZoneX, 0.08);
+  assert.equal(reset.settings.deadZoneX, 0.06);
+  assert.equal(loadSettings(storage).settings.deadZoneX, 0.06);
 });
 
 test('corrupt stored JSON falls back to defaults', () => {
   const storage = memoryStorage();
-  storage.setItem('yogai-phone-tracker.settings.v1', '{not json');
-  assert.equal(loadSettings(storage).settings.deadZoneX, 0.08);
+  storage.setItem('yogai-phone-tracker.settings.v2', '{not json');
+  assert.equal(loadSettings(storage).settings.deadZoneX, 0.06);
 });
 
 test('missing storage is handled', () => {
   assert.equal(saveSettings({}, null), false);
+});
+
+
+test('legacy settings migration preserves servo directions but adopts faster response defaults', () => {
+  const storage = memoryStorage();
+  storage.setItem('yogai-phone-tracker.settings.v1', JSON.stringify({
+    yawDirection: -1, tiltDirection: 1, maxSpeedDegPerS: 40, gainYaw: 12,
+  }));
+  const loaded = loadSettings(storage).settings;
+  assert.equal(loaded.yawDirection, -1);
+  assert.equal(loaded.tiltDirection, 1);
+  assert.equal(loaded.maxSpeedDegPerS, 90);
+  assert.equal(loaded.gainYaw, 24);
+  assert.ok(storage.getItem('yogai-phone-tracker.settings.v2'));
 });

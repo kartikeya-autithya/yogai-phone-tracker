@@ -1,26 +1,24 @@
-# Configuration
+# Configuration and response tuning
 
-Defaults live in `src/utils/configuration.js`. They come from `tracker.py` and the limits in `servo_tracker.ino`. The firmware is authoritative: settings are forced to be equal to or narrower than the firmware limits.
+The web app reads defaults from `src/utils/configuration.js`; the Arduino firmware limits are in `public/firmware/servo_tracker.ino`. Keep these in sync. The Phase 3.1 SG90 defaults are intentionally faster while preserving conservative angle limits.
 
-| Setting | Default | Notes |
-|---|---|---|
-| `deadZoneX`, `deadZoneY` | 0.08 | ±8% of frame, range 0.01–0.4 |
-| `emaAlpha` | 0.25 | lower = smoother, laggier |
-| `controlHz` | 20 | controller and send rate |
-| `maxSpeedDegPerS` | 40 | cannot exceed firmware 60 |
-| `minStepDeg` | 0.3 | smaller corrections ignored |
-| `minSendDeltaDeg` | 0.5 | smaller moves not sent |
-| `gainYaw`, `gainTilt` | 12 | degrees per update per unit error beyond dead zone |
-| `yawDirection`, `tiltDirection` | 1 | 1 or -1, calibrate on the mount |
-| `yawNeutral`, `tiltNeutral` | 90 | inside min/max |
-| `yawMin`/`yawMax` | 45 / 135 | firmware limits |
-| `tiltMin`/`tiltMax` | 60 / 120 | firmware limits |
-| `minVisibility` | 0.5 | per-landmark |
-| `minVisibleLandmarks` | 8 | fewer = unreliable frame |
-| `minBboxFraction` | 0.05 | box must span this much of frame |
-| `reacquireResetS` | 0.7 | smoothing restarts after this |
-| `baud` | 115200 | fixed to the firmware |
-| `arduinoBootWaitMs` | 2500 | wait after port opens |
-| `reconnectIntervalMs` | 2000 | |
+| Setting | Default | Adjustable in the app |
+|---|---:|---|
+| Dead zone X/Y | ±6% | 3–15% |
+| EMA alpha | 0.40 | 0.15–0.80 |
+| Controller rate | 20 Hz | fixed |
+| Maximum host speed | 90°/s | 20–90°/s |
+| Firmware slew ceiling | 100°/s | firmware constant |
+| Yaw gain | 24 | 5–45 |
+| Tilt gain | 24 | 5–45 |
+| Yaw limits | 45–135° | firmware enforced |
+| Tilt limits | 60–120° | firmware enforced |
+| Neutral | 90° / 90° | firmware calibration |
 
-The firmware range is 0–180° on both axes with 500–2400 µs pulses (SG90). Do not set 270° ranges unless you change the sketch and have a true 270° servo.
+The app's Servo controls card provides sliders for maximum speed, yaw sensitivity, tilt sensitivity, centre dead zone and smoothing. Changes save in browser storage and can be changed during tracking. The controller receives the updated settings live. Manual jog increments can be selected as 2°, 5°, 10° or 15°.
+
+Higher maximum speed allows the host to request faster angular changes. Higher gain increases the correction rate for a given image-position error. Higher EMA alpha reduces lag but may react more to landmark jitter. A smaller dead zone starts correcting closer to the centre.
+
+**Start conservatively.** Test the servos without the phone attached. Keep the Arduino firmware's yaw limits at 45–135° and tilt limits at 60–120° until the physical mount has been checked. Lower the speed or gains if the SG90 chatters, jitters or struggles. Do not expand mechanical limits just to make the app feel faster.
+
+After changing `MAX_SPEED_DEG_PER_S` in the Arduino sketch, re-upload the firmware. A web-app setting cannot override a lower firmware speed limit.

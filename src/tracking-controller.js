@@ -82,3 +82,107 @@ export function getPreviewAngles({
     outsideDeadZone: Math.abs(ex) > dx || Math.abs(ey) > dy,
   };
 }
+
+/**
+ * Closed-loop controller for a camera physically attached to the servo mount.
+ * The camera sees the mount move, so the controller integrates small corrections
+ * until the person's centre returns to the configured dead zone.
+ */
+export function createServoTrackingController(settings, initialAngles = {}) {
+  let yaw = clamp(
+    Number.isFinite(initialAngles.yaw) ? initialAngles.yaw : settings.yawNeutral,
+    settings.yawMin,
+    settings.yawMax,
+  );
+  let tilt = clamp(
+    Number.isFinite(initialAngles.tilt) ? initialAngles.tilt : settings.tiltNeutral,
+    settings.tiltMin,
+    settings.tiltMax,
+  );
+  let activeSettings = { ...settings };
+  let filteredX = null;
+  let filteredY = null;
+  let lastUpdateMs = null;
+
+  function update({ centerX, centerY, timestampMs = performance.now() }) {
+    if (!Number.isFinite(centerX) || !Number.isFinite(centerY)) {
+      return { ...getAngles(), detected: false, outsideDeadZone: false, errorX: 0, errorY: 0 };
+    }
+
+    const x = clamp(centerX, 0, 1);
+    const y = clamp(centerY, 0, 1);
+    const cfg = activeSettings;
+    const alpha = cfg.emaAlpha;
+    if (filteredX === null || filteredY === null) {
+      filteredX = x;
+      filteredY = y;
+    } else {
+      filteredX += alpha * (x - filteredX);
+      filteredY += alpha * (y - filteredY);
+    }
+
+    const dt = lastUpdateMs === null
+      ? 1 / cfg.controlHz
+      : clamp((timestampMs - lastUpdateMs) / 1000, 0, 0.15);
+    lastUpdateMs = timestampMs;
+
+    const errorX = filteredX - 0.5;
+    const errorY = filteredY - 0.5;
+    const outsideX = Math.abs(errorX) > cfg.deadZoneX;
+    const outsideY = Math.abs(errorY) > cfg.deadZoneY;
+
+    const velocityFor = (error, deadZone, gain) => {
+      const excess = Math.max(0, Math.abs(error) - deadZone);
+      // gain is expressed in degrees per control tick per unit of normalised error.
+      // Multiplying by controlHz converts it to a rate, then firmware and host
+      // speed limits keep the resulting movement bounded.
+      return Math.min(cfg.maxSpeedDegPerS, gain * cfg.controlHz * excess);
+    };
+
+    if (outsideX && dt > 0) {
+      const speed = velocityFor(errorX, cfg.deadZoneX, cfg.gainYaw);
+      yaw += Math.sign(errorX) * cfg.yawDirection * speed * dt;
+      yaw = clamp(yaw, cfg.yawMin, cfg.yawMax);
+    }
+    if (outsideY && dt > 0) {
+      const speed = velocityFor(errorY, cfg.deadZoneY, cfg.gainTilt);
+      tilt += Math.sign(errorY) * cfg.tiltDirection * speed * dt;
+      tilt = clamp(tilt, cfg.tiltMin, cfg.tiltMax);
+    }
+
+    return {
+      ...getAngles(),
+      detected: true,
+      outsideDeadZone: outsideX || outsideY,
+      errorX,
+      errorY,
+      filteredX,
+      filteredY,
+    };
+  }
+
+  function setAngles(nextYaw, nextTilt) {
+    yaw = clamp(Math.round(nextYaw), activeSettings.yawMin, activeSettings.yawMax);
+    tilt = clamp(Math.round(nextTilt), activeSettings.tiltMin, activeSettings.tiltMax);
+    return getAngles();
+  }
+
+  function getAngles() {
+    return { yaw: Math.round(yaw), tilt: Math.round(tilt) };
+  }
+
+  function setSettings(nextSettings) {
+    activeSettings = { ...nextSettings };
+    yaw = clamp(yaw, activeSettings.yawMin, activeSettings.yawMax);
+    tilt = clamp(tilt, activeSettings.tiltMin, activeSettings.tiltMax);
+    return getAngles();
+  }
+
+  function resetPositionFilter() {
+    filteredX = null;
+    filteredY = null;
+    lastUpdateMs = null;
+  }
+
+  return Object.freeze({ update, setAngles, setSettings, getAngles, resetPositionFilter });
+}

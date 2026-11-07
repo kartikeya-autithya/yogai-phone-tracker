@@ -1,40 +1,58 @@
-# Architecture
+# Architecture — Phase 3
 
-## Data flow (target design)
+## Current data flow
 
 ```
-camera.js → pose-tracker.js → tracking-controller.js → serial-manager.js → transport → Arduino
- (video)    (MediaPipe Pose)   (error, dead zone,       (rate limit,        usb / wifi /
-             centre + box       EMA, step, limits)        safe stop)          bluetooth
+phone camera → camera.js → pose-tracker.js → tracking-controller.js
+                                              ↓
+                                      app.js command gate
+                                              ↓
+                                  web-serial-transport.js
+                                              ↓
+                                   Arduino Uno (115200)
+                                              ↓
+                                      D5 yaw / D6 tilt
 ```
 
-The phone camera moves with the mount, so the controller is closed-loop: it reads the person's offset from the frame centre, moves the servos a small step toward reducing it, and re-measures on the next frame.
+The phone camera is physically attached to the moving mount. The controller reads the person's current position in the live camera frame, applies dead-zone/EMA/proportional corrections, sends a bounded target, and measures the next frame. This is the closed-loop arrangement; a fixed laptop webcam must only be used for camera preview and manual serial jog testing.
 
 ## Modules and status
 
 | Module | Responsibility | Status |
 |---|---|---|
-| `src/utils/configuration.js` | Defaults, firmware limits, validation, persistence | Phase 1 (done, unit tested) |
-| `src/utils/capabilities.js` | Real feature detection for the compatibility screen | Phase 1 (done, unit tested) |
-| `src/app.js`, `src/main.js` | Page wiring | Phase 1 |
-| `src/camera.js` | getUserMedia, camera list and switching | Phase 2 |
-| `src/pose-tracker.js` | MediaPipe Pose Landmarker, tracking centre, box | Phase 3 |
-| `src/tracking-controller.js` | Pure controller (no DOM/serial) | Phase 4 |
-| `src/serial/*` | Transport interface and USB transport | Phase 5 |
-| Wi-Fi / Bluetooth transports | Same interface | Phase 7 |
+| `src/utils/configuration.js` | Defaults, firmware limits, validation, persistence | Phase 1, tested |
+| `src/utils/capabilities.js` | Browser feature detection | Phase 1, tested |
+| `src/camera.js` | Camera permission, camera stream and switching | Phase 2, tested by user |
+| `src/vision/pose-tracker.js` | MediaPipe Pose Landmarker | Phase 2, tested by user |
+| `src/tracking-controller.js` | Pure closed-loop controller and pose bounding box | Phase 3, unit tested |
+| `src/serial/web-serial-transport.js` | Web Serial connect/read/write/disconnect | Phase 3, mocked unit tested; hardware pending |
+| `src/app.js` | Camera, serial, manual jog and automatic tracking UI wiring | Phase 3 |
+| Wi-Fi / BLE / native Android | Future transports | Not implemented |
 
-Files for later phases are added in their own phase so that no file contains placeholder code.
+## Serial protocol
 
-## Transport interface (Phase 5 onward)
+- Baud rate: 115200.
+- Command: `yaw,tilt\n`, with integer angles.
+- The app waits 2.5 seconds after opening the port because an Uno commonly resets when the port opens.
+- Firmware `READY` and `ERR` lines are read and shown in the UI.
+- Commands are limited by the host controller and firmware angle limits; duplicate targets are suppressed.
 
-Every transport exposes `connect()`, `disconnect()`, `send(yaw, tilt)` and a status callback. `serial-manager.js` owns rate limiting (about 20 Hz), duplicate suppression, the Arduino boot wait (2.5 s), and the "stop" behaviour. Nothing outside `src/serial/` knows which transport is in use.
+## Firmware assumptions
 
-## Firmware behaviour to design around
+The matching sketch is `public/firmware/servo_tracker.ino`:
 
-- The sketch holds its last target if commands stop (it has no timeout), so a lost connection leaves the mount where it was.
-- It replies `ERR` for malformed or out-of-range lines and clamps in-range values to its own limits.
-- The Uno resets when the serial port opens, so the first command waits for the boot delay.
+- Yaw: D5, range 0–180, software limits 45–135, neutral 90.
+- Tilt: D6, range 0–180, software limits 60–120, neutral 90.
+- Firmware slew ceiling: 100 degrees/second (Phase 3.1 faster response update).
+- If commands stop or the USB link is lost, this sketch keeps its last target; it has no command watchdog.
 
-## Controller design notes (Phase 4)
+## Controller behaviour
 
-Ported from `tracker.py` incremental mode: dead zone, EMA on the tracking centre, proportional step with gain beyond the dead zone, speed limit, angle limits, hold on detection loss, smoothing restart after 0.7 s unseen. Camera and servo latency can cause overshoot, so gains start conservative and are tuned from the simulation and then the real mount.
+- Uses the visible pose bounding-box centre as the tracked point.
+- The front camera display is mirrored; controller coordinates are transformed to match the displayed image.
+- Applies an EMA to the centre.
+- Outside the ±8% dead zone, a proportional velocity is integrated into yaw and tilt targets.
+- Host speed and angle limits are clamped before commands are sent.
+- If the person is not detected, no command is sent; the Arduino keeps its most recent target.
+- Manual jog controls send 5-degree changes, while Centre sends the configured neutral angles.
+- Yaw and tilt direction can be reversed in the UI and saved in browser storage.

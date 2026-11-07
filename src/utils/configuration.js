@@ -15,24 +15,24 @@ export const FIRMWARE_LIMITS = Object.freeze({
   tiltMin: 60,
   tiltMax: 120,
   tiltNeutral: 90,
-  maxSpeedDegPerS: 60,
+  maxSpeedDegPerS: 100,
   commandFormat: 'yaw,tilt\\n',
 });
 
 /** Safe SG90 defaults (see tracker.py for the origin of each value). */
 export const DEFAULT_SETTINGS = Object.freeze({
   // Dead zone: fraction of the frame, measured +/- from the centre.
-  deadZoneX: 0.08,
-  deadZoneY: 0.08,
+  deadZoneX: 0.06,
+  deadZoneY: 0.06,
 
   // Smoothing / controller
-  emaAlpha: 0.25,          // 0..1, lower = smoother but laggier
+  emaAlpha: 0.40,          // higher = faster response, but may show more landmark jitter
   controlHz: 20,           // controller update and serial send rate
-  maxSpeedDegPerS: 40,     // host-side limit (firmware allows up to 60)
+  maxSpeedDegPerS: 90,     // host-side limit (firmware allows up to 100)
   minStepDeg: 0.3,         // ignore corrections smaller than this
   minSendDeltaDeg: 0.5,    // do not send moves smaller than this
-  gainYaw: 12,             // degrees per update per unit of error beyond the dead zone
-  gainTilt: 12,
+  gainYaw: 24,             // higher = stronger yaw correction
+  gainTilt: 24,             // higher = stronger tilt correction
 
   // Direction: +1 or -1. Calibrate on the real mount.
   yawDirection: 1,
@@ -58,19 +58,20 @@ export const DEFAULT_SETTINGS = Object.freeze({
   reconnectIntervalMs: 2000,
 });
 
-const STORAGE_KEY = 'yogai-phone-tracker.settings.v1';
+const STORAGE_KEY = 'yogai-phone-tracker.settings.v2';
+const LEGACY_STORAGE_KEY = 'yogai-phone-tracker.settings.v1';
 
 /** Allowed numeric ranges for every setting that can be edited by the user. */
 const RANGES = Object.freeze({
-  deadZoneX: [0.01, 0.4],
-  deadZoneY: [0.01, 0.4],
-  emaAlpha: [0.05, 1],
+  deadZoneX: [0.02, 0.25],
+  deadZoneY: [0.02, 0.25],
+  emaAlpha: [0.15, 0.8],
   controlHz: [5, 30],
-  maxSpeedDegPerS: [1, FIRMWARE_LIMITS.maxSpeedDegPerS],
+  maxSpeedDegPerS: [20, 90],
   minStepDeg: [0, 5],
   minSendDeltaDeg: [0.1, 5],
-  gainYaw: [0.5, 40],
-  gainTilt: [0.5, 40],
+  gainYaw: [5, 45],
+  gainTilt: [5, 45],
   minVisibility: [0.1, 1],
   minVisibleLandmarks: [1, 33],
   minBboxFraction: [0.01, 1],
@@ -159,9 +160,28 @@ function fixAxis(s, axis, fwMin, fwMax, warnings) {
 export function loadSettings(storage = safeLocalStorage()) {
   if (!storage) return sanitizeSettings({});
   try {
-    const raw = storage.getItem(STORAGE_KEY);
-    if (!raw) return sanitizeSettings({});
-    return sanitizeSettings(JSON.parse(raw));
+    const current = storage.getItem(STORAGE_KEY);
+    if (current) return sanitizeSettings(JSON.parse(current));
+
+    // Migrate only user calibration/direction from v1. Use the new, faster
+    // response defaults rather than carrying forward the old slow gain/speed.
+    const legacy = storage.getItem(LEGACY_STORAGE_KEY);
+    if (legacy) {
+      const old = JSON.parse(legacy);
+      const migrated = sanitizeSettings({
+        yawDirection: old?.yawDirection,
+        tiltDirection: old?.tiltDirection,
+        yawMin: old?.yawMin,
+        yawMax: old?.yawMax,
+        yawNeutral: old?.yawNeutral,
+        tiltMin: old?.tiltMin,
+        tiltMax: old?.tiltMax,
+        tiltNeutral: old?.tiltNeutral,
+      });
+      storage.setItem(STORAGE_KEY, JSON.stringify(migrated.settings));
+      return migrated;
+    }
+    return sanitizeSettings({});
   } catch {
     return sanitizeSettings({});
   }

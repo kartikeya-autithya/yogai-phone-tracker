@@ -1,7 +1,7 @@
 {
   "name": "yogai-phone-tracker",
-  "version": "0.2.0",
-  "description": "Mobile-first YogAI phone tracker with on-device MediaPipe Pose Landmarker preview.",
+  "version": "0.3.1",
+  "description": "Mobile-first YogAI phone tracker with MediaPipe pose tracking and USB serial Arduino servo control.",
   "private": true,
   "type": "module",
   "engines": {

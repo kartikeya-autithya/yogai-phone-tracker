@@ -14,7 +14,7 @@
 <body>
   <header class="topbar">
     <h1>YogAI Phone Tracker</h1>
-    <span class="badge" id="buildBadge">Phase 2</span>
+    <span class="badge" id="buildBadge">Phase 3.1 · Faster controls</span>
   </header>
 
   <main class="page">
@@ -22,7 +22,7 @@
       <div class="section-heading">
         <div>
           <h2 id="cameraTitle">Live camera &amp; pose tracking</h2>
-          <p class="muted">On-device MediaPipe Pose Landmarker · No Arduino commands in this phase</p>
+          <p class="muted">On-device MediaPipe Pose Landmarker · Optional USB servo control</p>
         </div>
         <span id="trackingState" class="state-pill muted">STOPPED</span>
       </div>
@@ -52,13 +52,13 @@
       <p id="cameraMessage" class="camera-message info" role="status" aria-live="polite">Ready. Camera access starts only after you tap the button.</p>
 
       <div class="metrics-grid">
-        <div class="metric"><span>Simulated yaw</span><strong id="yawValue">90°</strong></div>
-        <div class="metric"><span>Simulated tilt</span><strong id="tiltValue">90°</strong></div>
+        <div class="metric"><span>Yaw target</span><strong id="yawValue">90°</strong></div>
+        <div class="metric"><span>Tilt target</span><strong id="tiltValue">90°</strong></div>
         <div class="metric"><span>Person centre</span><strong id="positionValue">—</strong></div>
         <div class="metric"><span>Detection speed</span><strong id="fpsValue">— FPS</strong></div>
         <div class="metric"><span>Delegate</span><strong id="delegateValue">—</strong></div>
       </div>
-      <p class="muted small-note">The angle values are a visual preview only. They are not sent to the Arduino. Keep the phone still for this camera test; USB control comes in Phase 3.</p>
+      <p class="muted small-note" id="angleHelp">Without servo tracking, angles are a visual preview only. Connect the Arduino and explicitly start servo tracking to send commands.</p>
     </section>
 
     <section class="card" aria-labelledby="legendTitle">
@@ -79,9 +79,99 @@
     </section>
 
     <section class="card" aria-labelledby="usbTitle">
-      <h2 id="usbTitle">Arduino connection (Phase 3)</h2>
-      <p id="usbSummary"></p>
-      <p class="muted" id="usbOtg"></p>
+      <div class="section-heading">
+        <div>
+          <h2 id="usbTitle">Arduino USB connection</h2>
+          <p class="muted">Connect the already-programmed Arduino Uno using a USB data cable. On Android, use a USB-OTG adapter.</p>
+        </div>
+        <span id="serialState" class="state-pill muted">NOT CONNECTED</span>
+      </div>
+      <div class="control-actions">
+        <button id="connectArduino" class="button primary" type="button">Connect Arduino</button>
+        <button id="disconnectArduino" class="button secondary" type="button" disabled>Disconnect</button>
+      </div>
+      <p id="serialMessage" class="camera-message info" role="status" aria-live="polite">No Arduino connection yet. Tap Connect Arduino and select the serial device.</p>
+      <p id="usbSummary" class="muted small-note"></p>
+      <p id="usbOtg" class="muted small-note"></p>
+      <p class="muted small-note">The website does not flash firmware. Upload <code>servo_tracker.ino</code> separately using Arduino IDE. Only connect hardware you trust.</p>
+    </section>
+
+    <section class="card" aria-labelledby="servoTitle">
+      <h2 id="servoTitle">Servo controls</h2>
+      <p class="muted">Test each axis with small movements before enabling automatic tracking. Keep the phone detached during initial testing.</p>
+      <div class="control-actions">
+        <button id="centreServos" class="button secondary" type="button" disabled>Centre servos</button>
+        <button id="startServoTracking" class="button primary" type="button" disabled>Start servo tracking</button>
+        <button id="stopServoTracking" class="button danger" type="button" disabled>Stop servo tracking</button>
+      </div>
+      <div class="jog-grid">
+        <div class="jog-axis">
+          <strong>Yaw · Left / Right</strong>
+          <div class="jog-buttons">
+            <button id="yawMinus" class="button secondary" type="button" disabled>Yaw −5°</button>
+            <button id="yawPlus" class="button secondary" type="button" disabled>Yaw +5°</button>
+          </div>
+        </div>
+        <div class="jog-axis">
+          <strong>Tilt · Down / Up</strong>
+          <div class="jog-buttons">
+            <button id="tiltMinus" class="button secondary" type="button" disabled>Tilt −5°</button>
+            <button id="tiltPlus" class="button secondary" type="button" disabled>Tilt +5°</button>
+          </div>
+        </div>
+      </div>
+      <div class="direction-grid">
+        <label class="direction-control" for="yawDirectionSelect">Yaw direction
+          <select id="yawDirectionSelect">
+            <option value="1">Normal</option>
+            <option value="-1">Reversed</option>
+          </select>
+        </label>
+        <label class="direction-control" for="tiltDirectionSelect">Tilt direction
+          <select id="tiltDirectionSelect">
+            <option value="1">Normal</option>
+            <option value="-1">Reversed</option>
+          </select>
+        </label>
+        <label class="direction-control" for="manualJogStep">Manual jog size
+          <select id="manualJogStep">
+            <option value="2">2° · Fine</option>
+            <option value="5" selected>5° · Normal</option>
+            <option value="10">10° · Coarse</option>
+            <option value="15">15° · Fast</option>
+          </select>
+        </label>
+      </div>
+      <div class="response-panel">
+        <div class="response-heading">
+          <strong>Tracking response</strong>
+          <span class="muted small-note">Changes save automatically</span>
+        </div>
+        <label class="range-control" for="responseSpeed">
+          <span>Maximum servo speed <output id="responseSpeedValue">90°/s</output></span>
+          <input id="responseSpeed" type="range" min="20" max="90" step="5" value="90">
+        </label>
+        <label class="range-control" for="yawGain">
+          <span>Yaw sensitivity <output id="yawGainValue">24</output></span>
+          <input id="yawGain" type="range" min="5" max="45" step="1" value="24">
+        </label>
+        <label class="range-control" for="tiltGain">
+          <span>Tilt sensitivity <output id="tiltGainValue">24</output></span>
+          <input id="tiltGain" type="range" min="5" max="45" step="1" value="24">
+        </label>
+        <label class="range-control" for="deadZone">
+          <span>Centre dead zone <output id="deadZoneValue">±6%</output></span>
+          <input id="deadZone" type="range" min="3" max="15" step="1" value="6">
+        </label>
+        <label class="range-control" for="responseSmoothing">
+          <span>Response smoothing <output id="responseSmoothingValue">0.40</output></span>
+          <input id="responseSmoothing" type="range" min="0.15" max="0.80" step="0.05" value="0.40">
+        </label>
+        <p class="muted small-note">Higher speed and sensitivity react more quickly. Higher smoothing alpha follows movement faster but can look less steady. Reduce speed if the servos chatter, vibrate or struggle. Mechanical angle limits remain enforced by the Arduino firmware.</p>
+      </div>
+      <p class="muted small-note">If automatic movement turns away from you, stop tracking and change that axis to Reversed. The choice is saved on this browser.</p>
+      <p id="servoMessage" class="camera-message info" role="status" aria-live="polite">Connect the Arduino to enable manual controls and tracking.</p>
+      <p class="muted small-note">Automatic control uses closed-loop corrections because the phone camera moves with the mount. The controller holds the last target when no person is detected or tracking is stopped.</p>
     </section>
 
     <section class="card" aria-labelledby="cfgTitle">

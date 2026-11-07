@@ -42,7 +42,7 @@ const int TILT_MIN  = 60;
 const int TILT_MAX  = 120;
 const int TILT_NEUTRAL = 90;
 
-const float MAX_SPEED_DEG_PER_S = 60.0;      // servo glide speed
+const float MAX_SPEED_DEG_PER_S = 100.0;     // higher but still slew-limited; tune down if the SG90 chatters
 const unsigned long UPDATE_INTERVAL_MS = 20; // servo update period
 
 const bool ECHO_OK = false;                  // true: reply "OK yaw tilt" per command

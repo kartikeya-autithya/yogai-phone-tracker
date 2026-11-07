@@ -39,7 +39,9 @@ export function detectCapabilities(env = globalThis) {
     usbNote = 'iPhone/iPad browsers do not provide Web Serial or WebUSB. USB to the Arduino needs a native app.';
   } else if (webSerial) {
     usbRoute = 'web-serial';
-    usbNote = 'Web Serial API present. Whether this phone lists the Arduino can only be confirmed by connecting it with a USB-OTG cable.';
+    usbNote = isAndroid
+      ? 'Web Serial API is present. Android USB serial access still depends on device support, USB-OTG host mode, and the Uno USB-serial interface; confirm by connecting the board.'
+      : 'Web Serial API present. Whether the Arduino is recognised can only be confirmed by connecting it.';
   } else if (webUsb) {
     usbRoute = 'webusb';
     usbNote = 'Web Serial is missing but WebUSB is present. A WebUSB-based serial fallback may work for CDC-ACM boards such as the Uno; untested.';

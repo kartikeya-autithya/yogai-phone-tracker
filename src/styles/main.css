@@ -76,3 +76,30 @@ select { color: var(--ink); background: #0c1511; border: 1px solid var(--line); 
 .cfg-table tr + tr { border-top: 1px solid var(--line); }
 @media (min-width: 700px) { .page { padding: 20px; gap: 16px; } .card { padding: 17px 18px; } .camera-viewport { max-height: 640px; } .metrics-grid { grid-template-columns: repeat(3,minmax(0,1fr)); } }
 @media (max-width: 380px) { .topbar h1 { font-size: .98rem; } .page { padding: 10px; } .card { padding: 12px; } .camera-actions { grid-template-columns: 1fr; } }
+
+/* Phase 3: USB serial and direct servo controls */
+.control-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; margin-top: 11px; }
+.button.danger { background: rgba(229, 115, 115, .12); color: #ffaaaa; border-color: rgba(229, 115, 115, .48); }
+.jog-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
+.jog-axis { min-width: 0; border: 1px solid var(--line); border-radius: 11px; background: var(--panel-2); padding: 11px; }
+.jog-axis > strong { display: block; font-size: .85rem; margin-bottom: 8px; }
+.jog-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+.jog-buttons .button { padding-inline: 6px; font-size: .78rem; }
+code { color: var(--teal); background: #0b1410; border: 1px solid var(--line); border-radius: 5px; padding: 1px 4px; }
+@media (max-width: 430px) {
+  .control-actions { grid-template-columns: 1fr; }
+  .jog-grid { grid-template-columns: 1fr; }
+}
+.direction-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
+.direction-control { display: grid; gap: 6px; color: var(--mute); font-size: .82rem; }
+.direction-control select { width: 100%; min-width: 0; }
+@media (max-width: 430px) { .direction-grid { grid-template-columns: 1fr; } }
+
+/* Responsive servo tuning controls */
+.response-panel { display: grid; gap: 13px; margin-top: 13px; padding: 13px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel-2); }
+.response-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.response-heading strong { color: var(--teal); font-size: .9rem; }
+.range-control { display: grid; gap: 7px; color: var(--mute); font-size: .82rem; }
+.range-control > span { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.range-control output { color: var(--ink); font-weight: 750; font-variant-numeric: tabular-nums; }
+.range-control input[type="range"] { width: 100%; accent-color: var(--teal); min-height: 24px; cursor: pointer; }

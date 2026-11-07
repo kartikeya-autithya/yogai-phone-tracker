@@ -1,8 +1,16 @@
 import { detectCapabilities } from './utils/capabilities.js';
-import { DEFAULT_SETTINGS, FIRMWARE_LIMITS, loadSettings } from './utils/configuration.js';
+import { DEFAULT_SETTINGS, FIRMWARE_LIMITS, loadSettings, saveSettings, sanitizeSettings } from './utils/configuration.js';
 import { openCamera, closeCamera } from './camera.js';
 import { createPoseTracker } from './vision/pose-tracker.js';
-import { getVisibleBoundingBox, getPreviewAngles, POSE_CONNECTIONS, toDisplayPoint } from './tracking-controller.js';
+import {
+  getVisibleBoundingBox,
+  getPreviewAngles,
+  createServoTrackingController,
+  POSE_CONNECTIONS,
+  toDisplayPoint,
+  clamp,
+} from './tracking-controller.js';
+import { WebSerialTransport } from './serial/web-serial-transport.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -16,8 +24,14 @@ let inferenceCount = 0;
 let settings = { ...DEFAULT_SETTINGS };
 let currentFacingMode = 'user';
 let lastAngles = { yaw: 90, tilt: 90 };
-let mirroredPreview = true;
+let mirroredPreview = false;
 let busy = false;
+let serialTransport = null;
+let trackingController = null;
+let servoTrackingActive = false;
+let sendChain = Promise.resolve();
+let lastSentKey = '';
+let lastSerialSendAt = 0;
 
 function statusItem(label, available, note) {
   const li = document.createElement('li');
@@ -46,11 +60,11 @@ function renderCompatibility(caps) {
     statusItem('Bluetooth', caps.bluetooth.available, caps.bluetooth.note),
     statusItem('Wi-Fi (WebSocket)', caps.wifi.available, caps.wifi.note),
   );
-  $('compatIntro').textContent = 'API present means the browser offers the feature. It does not prove your hardware will connect.';
+  $('compatIntro').textContent = 'API present means the browser offers the feature. It does not prove your Arduino or USB adapter will connect.';
   $('usbSummary').textContent = caps.usb.note;
   $('usbOtg').textContent = caps.usb.needsOtgCable
-    ? 'A phone needs a USB-OTG adapter or cable. The Arduino sketch is uploaded separately with Arduino IDE.'
-    : 'The Arduino sketch is uploaded separately with Arduino IDE.';
+    ? 'On Android, connect the phone to the Uno with a data-capable USB-OTG adapter/cable. The Uno sketch must already be uploaded.'
+    : 'The Arduino sketch must already be uploaded using Arduino IDE.';
 }
 
 function renderConfig() {
@@ -59,6 +73,7 @@ function renderConfig() {
     ['Command format', FIRMWARE_LIMITS.commandFormat],
     ['Dead zone (x / y)', `±${settings.deadZoneX * 100}% / ±${settings.deadZoneY * 100}%`],
     ['EMA alpha', settings.emaAlpha],
+    ['Yaw / tilt gain', `${settings.gainYaw} / ${settings.gainTilt}`],
     ['Control rate', `${settings.controlHz} Hz`],
     ['Max speed (host / firmware)', `${settings.maxSpeedDegPerS} / ${FIRMWARE_LIMITS.maxSpeedDegPerS} °/s`],
     ['Yaw neutral, limits', `${settings.yawNeutral}°, ${settings.yawMin}°–${settings.yawMax}°`],
@@ -99,6 +114,35 @@ function setTrackingState(text, kind = 'muted') {
   $('trackingState').className = `state-pill ${kind}`;
 }
 
+function setSerialStatus(message, kind = 'info') {
+  $('serialMessage').textContent = message;
+  $('serialMessage').className = `camera-message ${kind}`;
+  const connected = !!serialTransport?.connected;
+  $('serialState').textContent = connected ? 'CONNECTED' : 'NOT CONNECTED';
+  $('serialState').className = `state-pill ${connected ? 'centred' : 'muted'}`;
+  updateControlButtons();
+}
+
+function setServoMessage(message, kind = 'info') {
+  $('servoMessage').textContent = message;
+  $('servoMessage').className = `camera-message ${kind}`;
+}
+
+function updateControlButtons() {
+  const connected = !!serialTransport?.connected;
+  $('connectArduino').disabled = connected || busy;
+  $('disconnectArduino').disabled = !connected;
+  $('centreServos').disabled = !connected || servoTrackingActive;
+  $('yawMinus').disabled = !connected || servoTrackingActive;
+  $('yawPlus').disabled = !connected || servoTrackingActive;
+  $('tiltMinus').disabled = !connected || servoTrackingActive;
+  $('tiltPlus').disabled = !connected || servoTrackingActive;
+  $('yawDirectionSelect').disabled = servoTrackingActive;
+  $('tiltDirectionSelect').disabled = servoTrackingActive;
+  $('startServoTracking').disabled = !connected || !cameraStream || servoTrackingActive;
+  $('stopServoTracking').disabled = !servoTrackingActive;
+}
+
 function sizeOverlay() {
   const video = $('cameraVideo');
   const canvas = $('poseOverlay');
@@ -110,7 +154,6 @@ function sizeOverlay() {
 
 function drawBaseOverlay(ctx, width, height) {
   ctx.clearRect(0, 0, width, height);
-  // Dead-zone rectangle: ±8% around the camera frame centre.
   const left = width * (0.5 - settings.deadZoneX);
   const right = width * (0.5 + settings.deadZoneX);
   const top = height * (0.5 - settings.deadZoneY);
@@ -133,7 +176,7 @@ function drawBaseOverlay(ctx, width, height) {
   ctx.restore();
 }
 
-function drawPose(result, box, landmarks) {
+function drawPose(box, landmarks) {
   const canvas = $('poseOverlay');
   const ctx = canvas.getContext('2d');
   const width = canvas.width;
@@ -174,14 +217,47 @@ function drawPose(result, box, landmarks) {
   ctx.restore();
 }
 
-function updatePreview(box) {
-  const point = toDisplayPoint(box.centerX, box.centerY, mirroredPreview);
-  const preview = getPreviewAngles({ centerX: point.x, centerY: point.y, settings });
-  lastAngles = { yaw: preview.yaw, tilt: preview.tilt };
-  $('yawValue').textContent = `${preview.yaw}°`;
-  $('tiltValue').textContent = `${preview.tilt}°`;
+function queueServoCommand(yaw, tilt, { force = false } = {}) {
+  if (!serialTransport?.connected) return Promise.resolve(false);
+  const safeYaw = Math.round(clamp(yaw, settings.yawMin, settings.yawMax));
+  const safeTilt = Math.round(clamp(tilt, settings.tiltMin, settings.tiltMax));
+  const key = `${safeYaw},${safeTilt}`;
+  const now = performance.now();
+  if (!force && key === lastSentKey) return Promise.resolve(false);
+  if (!force && now - lastSerialSendAt < 35) return Promise.resolve(false);
+  lastSentKey = key;
+  lastSerialSendAt = now;
+  sendChain = sendChain
+    .catch(() => {})
+    .then(() => serialTransport?.sendAngles(safeYaw, safeTilt))
+    .then(() => true)
+    .catch((error) => {
+      setServoMessage(`Could not send servo command: ${error?.message || error}`, 'error');
+      return false;
+    });
+  return sendChain;
+}
+
+function updateAngleDisplay(angles, point, modeLabel, { store = true } = {}) {
+  if (store) lastAngles = { yaw: angles.yaw, tilt: angles.tilt };
+  $('yawValue').textContent = `${angles.yaw}°`;
+  $('tiltValue').textContent = `${angles.tilt}°`;
   $('positionValue').textContent = `X ${(point.x * 100).toFixed(1)}% · Y ${(point.y * 100).toFixed(1)}%`;
-  setTrackingState(preview.outsideDeadZone ? 'TRACKING' : 'CENTRED', preview.outsideDeadZone ? 'tracking' : 'centred');
+  $('angleHelp').textContent = modeLabel;
+}
+
+function updateTrackingFromBox(box, now) {
+  const point = toDisplayPoint(box.centerX, box.centerY, mirroredPreview);
+  if (servoTrackingActive && serialTransport?.connected && trackingController) {
+    const result = trackingController.update({ centerX: point.x, centerY: point.y, timestampMs: now });
+    updateAngleDisplay(result, point, 'LIVE SERVO CONTROL · Closed-loop correction is sent to the connected Arduino.');
+    setTrackingState(result.outsideDeadZone ? 'TRACKING · ARDUINO' : 'CENTRED · ARDUINO', result.outsideDeadZone ? 'tracking' : 'centred');
+    void queueServoCommand(result.yaw, result.tilt);
+  } else {
+    const preview = getPreviewAngles({ centerX: point.x, centerY: point.y, settings });
+    updateAngleDisplay(preview, point, 'PREVIEW ONLY · Connect Arduino and start servo tracking to send commands.', { store: false });
+    setTrackingState(preview.outsideDeadZone ? 'PREVIEW TRACKING' : 'CENTRED', preview.outsideDeadZone ? 'tracking' : 'centred');
+  }
 }
 
 function updateFps(now) {
@@ -198,8 +274,8 @@ function updateFps(now) {
 function processFrame(now) {
   if (!cameraStream || !poseLandmarker) return;
   const video = $('cameraVideo');
-  // Keep inference near 15 FPS on phones; camera preview itself remains live.
-  if (now - lastInferenceAt >= 66 && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && video.currentTime !== lastVideoTime) {
+  // On mobile, target up to 20 FPS; if the phone is slower, requestAnimationFrame naturally runs at its sustainable rate.
+  if (now - lastInferenceAt >= 50 && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && video.currentTime !== lastVideoTime) {
     lastVideoTime = video.currentTime;
     try {
       const result = poseLandmarker.detectForVideo(video, Math.max(now, lastInferenceAt + 1));
@@ -207,12 +283,13 @@ function processFrame(now) {
       updateFps(now);
       const landmarks = result.landmarks?.[0];
       const box = getVisibleBoundingBox(landmarks, settings.minVisibility, settings.minVisibleLandmarks);
-      drawPose(result, box, landmarks);
+      drawPose(box, landmarks);
       if (box) {
-        updatePreview(box);
+        updateTrackingFromBox(box, now);
       } else {
-        setTrackingState('NO PERSON / HOLDING PREVIEW', 'muted');
+        setTrackingState(servoTrackingActive ? 'NO PERSON · HOLDING SERVOS' : 'NO PERSON DETECTED', 'muted');
         $('positionValue').textContent = 'Person not detected';
+        // No command is sent on unreliable/lost detection; Arduino holds its last target.
       }
     } catch (error) {
       console.error('Pose detection failed:', error);
@@ -257,7 +334,6 @@ async function startCamera() {
     inferenceCount = 0;
     animationFrame = requestAnimationFrame(processFrame);
     $('stopCamera').disabled = false;
-    $('cameraSelect').disabled = false;
   } catch (error) {
     console.error(error);
     if (cameraStream) closeCamera(cameraStream, $('cameraVideo'));
@@ -268,10 +344,23 @@ async function startCamera() {
   } finally {
     busy = false;
     $('startCamera').disabled = false;
+    updateControlButtons();
   }
 }
 
+function stopServoTracking({ sendHold = true, message = 'Servo tracking stopped. The Arduino keeps its last target.' } = {}) {
+  if (!servoTrackingActive) return;
+  servoTrackingActive = false;
+  if (trackingController) lastAngles = trackingController.getAngles();
+  trackingController = null;
+  if (sendHold && serialTransport?.connected) void queueServoCommand(lastAngles.yaw, lastAngles.tilt, { force: true });
+  setServoMessage(message, 'info');
+  if (cameraStream) setTrackingState('CAMERA READY · SERVO TRACKING OFF', 'muted');
+  updateControlButtons();
+}
+
 function stopCamera() {
+  stopServoTracking({ message: 'Camera stopped; servo tracking disabled. The Arduino holds its last target.' });
   if (animationFrame) cancelAnimationFrame(animationFrame);
   animationFrame = 0;
   closeCamera(cameraStream, $('cameraVideo'));
@@ -283,8 +372,10 @@ function stopCamera() {
   $('fpsValue').textContent = '— FPS';
   $('positionValue').textContent = '—';
   $('stopCamera').disabled = true;
+  $('cameraSelect').disabled = true;
   setTrackingState('STOPPED', 'muted');
   setCameraStatus('Camera stopped. No video is being processed.', 'info');
+  updateControlButtons();
 }
 
 async function switchCamera() {
@@ -297,21 +388,201 @@ async function switchCamera() {
   }
 }
 
-export function startApp() {
+async function connectArduino() {
+  if (serialTransport?.connected || busy) return;
+  if (serialTransport && !serialTransport.connected) {
+    await serialTransport.disconnect().catch(() => {});
+    serialTransport = null;
+  }
+  if (!('serial' in navigator) || !navigator.serial?.requestPort) {
+    setSerialStatus('Web Serial is unavailable here. Use a supported Chrome browser or a native Android USB app.', 'error');
+    return;
+  }
+
+  busy = true;
+  $('connectArduino').disabled = true;
+  serialTransport = new WebSerialTransport({
+    baudRate: FIRMWARE_LIMITS.baud,
+    bootWaitMs: settings.arduinoBootWaitMs,
+    onStatus: (message, kind) => {
+      setSerialStatus(message, kind);
+      if (serialTransport && !serialTransport.connected && servoTrackingActive) {
+        stopServoTracking({ sendHold: false, message: 'USB connection was lost. Servo tracking stopped.' });
+      }
+    },
+    onLine: (line) => {
+      if (line === 'READY') {
+        setSerialStatus('Arduino replied READY. Firmware is running.', 'success');
+      } else if (line === 'ERR') {
+        setServoMessage('Arduino replied ERR. Check that the uploaded firmware and angle limits match this app.', 'error');
+      } else {
+        setSerialStatus(`Arduino: ${line}`, 'info');
+      }
+    },
+    onDisconnect: () => {
+      if (servoTrackingActive) stopServoTracking({ sendHold: false, message: 'USB connection lost. Servo tracking stopped.' });
+      updateControlButtons();
+    },
+  });
+
+  try {
+    await serialTransport.connect();
+    lastSentKey = '';
+    lastSerialSendAt = 0;
+    setServoMessage('Connected. First test the Centre and small manual jog buttons with the phone detached.', 'success');
+  } catch (error) {
+    const cancelled = error?.name === 'NotFoundError' || error?.name === 'AbortError';
+    setSerialStatus(cancelled ? 'Port selection cancelled. No device connected.' : `Connection failed: ${error?.message || error}`, cancelled ? 'info' : 'error');
+    serialTransport = null;
+  } finally {
+    busy = false;
+    updateControlButtons();
+  }
+}
+
+async function disconnectArduino() {
+  stopServoTracking({ sendHold: false, message: 'Disconnected. Automatic tracking is off.' });
+  const transport = serialTransport;
+  serialTransport = null;
+  if (transport) await transport.disconnect();
+  setSerialStatus('Arduino disconnected.', 'info');
+  updateControlButtons();
+}
+
+async function sendManualAngles(yaw, tilt) {
+  if (!serialTransport?.connected) return;
+  const nextYaw = Math.round(clamp(yaw, settings.yawMin, settings.yawMax));
+  const nextTilt = Math.round(clamp(tilt, settings.tiltMin, settings.tiltMax));
+  lastAngles = { yaw: nextYaw, tilt: nextTilt };
+  if (trackingController) trackingController.setAngles(nextYaw, nextTilt);
+  $('yawValue').textContent = `${nextYaw}°`;
+  $('tiltValue').textContent = `${nextTilt}°`;
+  $('angleHelp').textContent = 'MANUAL SERVO TEST · Small commands sent directly to the Arduino.';
+  const sent = await queueServoCommand(nextYaw, nextTilt, { force: true });
+  setServoMessage(sent ? `Manual target sent: yaw ${nextYaw}°, tilt ${nextTilt}°.` : 'Command queued. Check the USB connection if the servos do not respond.', sent ? 'success' : 'info');
+}
+
+async function nudgeAxis(axis, direction) {
+  if (servoTrackingActive || !serialTransport?.connected) return;
+  const next = { ...lastAngles };
+  const step = Number($('manualJogStep').value) || 5;
+  next[axis] += direction * step;
+  await sendManualAngles(next.yaw, next.tilt);
+}
+
+async function centreServos() {
+  if (servoTrackingActive || !serialTransport?.connected) return;
+  await sendManualAngles(settings.yawNeutral, settings.tiltNeutral);
+}
+
+async function startServoTracking() {
+  if (!cameraStream || !serialTransport?.connected || servoTrackingActive) {
+    setServoMessage('Start the camera and connect the Arduino before enabling servo tracking.', 'error');
+    return;
+  }
+  trackingController = createServoTrackingController(settings, lastAngles);
+  servoTrackingActive = true;
+  await queueServoCommand(lastAngles.yaw, lastAngles.tilt, { force: true });
+  setServoMessage('Automatic tracking active. The phone camera is the feedback sensor; keep the mount clear.', 'success');
+  $('angleHelp').textContent = 'LIVE SERVO CONTROL · The controller sends bounded yaw/tilt corrections to the Arduino.';
+  updateControlButtons();
+}
+
+function changeDirection(axis, value) {
+  if (servoTrackingActive) return;
+  const key = axis === 'yaw' ? 'yawDirection' : 'tiltDirection';
+  settings = { ...settings, [key]: Number(value) };
+  saveSettings(settings);
+  settings = loadSettings().settings;
+  renderConfig();
+  setServoMessage(`${axis === 'yaw' ? 'Yaw' : 'Tilt'} direction saved as ${settings[key] === 1 ? 'normal' : 'reversed'}.`, 'success');
+}
+
+function renderResponseControls() {
+  const bindings = [
+    ['responseSpeed', 'responseSpeedValue', settings.maxSpeedDegPerS, (v) => `${v}°/s`],
+    ['yawGain', 'yawGainValue', settings.gainYaw, (v) => String(v)],
+    ['tiltGain', 'tiltGainValue', settings.gainTilt, (v) => String(v)],
+    ['deadZone', 'deadZoneValue', Math.round(settings.deadZoneX * 100), (v) => `±${v}%`],
+    ['responseSmoothing', 'responseSmoothingValue', settings.emaAlpha, (v) => Number(v).toFixed(2)],
+  ];
+  for (const [inputId, outputId, value, format] of bindings) {
+    const input = $(inputId);
+    const output = $(outputId);
+    if (input) input.value = String(value);
+    if (output) output.textContent = format(value);
+  }
+  updateJogLabels();
+}
+
+function updateJogLabels() {
+  const step = Number($('manualJogStep')?.value || 5);
+  $('yawMinus').textContent = `Yaw −${step}°`;
+  $('yawPlus').textContent = `Yaw +${step}°`;
+  $('tiltMinus').textContent = `Tilt −${step}°`;
+  $('tiltPlus').textContent = `Tilt +${step}°`;
+}
+
+function applyResponseControls() {
+  const zone = Number($('deadZone').value) / 100;
+  const candidate = {
+    ...settings,
+    maxSpeedDegPerS: Number($('responseSpeed').value),
+    gainYaw: Number($('yawGain').value),
+    gainTilt: Number($('tiltGain').value),
+    deadZoneX: zone,
+    deadZoneY: zone,
+    emaAlpha: Number($('responseSmoothing').value),
+  };
+  settings = sanitizeSettings(candidate).settings;
+  saveSettings(settings);
+  trackingController?.setSettings(settings);
+  renderResponseControls();
+  renderConfig();
+  setServoMessage('Response settings saved and applied. You can adjust them while tracking.', 'success');
+}
+
+function startApp() {
   const caps = detectCapabilities();
   settings = loadSettings().settings;
+  lastAngles = { yaw: settings.yawNeutral, tilt: settings.tiltNeutral };
   renderCompatibility(caps);
   renderConfig();
+  renderResponseControls();
   renderEnvironment(caps.environment);
+
   $('startCamera').addEventListener('click', startCamera);
   $('stopCamera').addEventListener('click', stopCamera);
   $('cameraSelect').addEventListener('change', switchCamera);
+  $('connectArduino').addEventListener('click', connectArduino);
+  $('disconnectArduino').addEventListener('click', disconnectArduino);
+  $('centreServos').addEventListener('click', centreServos);
+  $('yawMinus').addEventListener('click', () => nudgeAxis('yaw', -1));
+  $('yawPlus').addEventListener('click', () => nudgeAxis('yaw', 1));
+  $('tiltMinus').addEventListener('click', () => nudgeAxis('tilt', -1));
+  $('tiltPlus').addEventListener('click', () => nudgeAxis('tilt', 1));
+  $('startServoTracking').addEventListener('click', startServoTracking);
+  $('yawDirectionSelect').value = String(settings.yawDirection);
+  $('tiltDirectionSelect').value = String(settings.tiltDirection);
+  $('yawDirectionSelect').addEventListener('change', (event) => changeDirection('yaw', event.target.value));
+  $('tiltDirectionSelect').addEventListener('change', (event) => changeDirection('tilt', event.target.value));
+  $('stopServoTracking').addEventListener('click', () => stopServoTracking());
+  for (const id of ['responseSpeed', 'yawGain', 'tiltGain', 'deadZone', 'responseSmoothing']) {
+    $(id).addEventListener('input', applyResponseControls);
+  }
+  $('manualJogStep').addEventListener('change', updateJogLabels);
+
   window.addEventListener('pagehide', () => {
     stopCamera();
     poseLandmarker?.close();
     poseLandmarker = null;
+    void disconnectArduino();
   });
+
   drawBaseOverlay($('poseOverlay').getContext('2d'), $('poseOverlay').width, $('poseOverlay').height);
   $('yawValue').textContent = `${lastAngles.yaw}°`;
   $('tiltValue').textContent = `${lastAngles.tilt}°`;
+  updateControlButtons();
 }
+
+export { startApp };

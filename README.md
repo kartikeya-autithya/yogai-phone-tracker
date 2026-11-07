@@ -1,4 +1,4 @@
-# YogAI Phone Tracker — Phase 3.3
+# YogAI Phone Tracker — Phase 3.4
 
 Phase 3.1 adds **faster, adjustable USB servo control** on top of the Phase 3 Arduino Uno connection to the Phase 2 phone-camera and MediaPipe Pose Landmarker application. The phone browser connects to an already-programmed Uno using Web Serial, sends `yaw,tilt\n` commands at a bounded rate, and can run an incremental closed-loop controller because the phone camera moves with the servo mount.
 
@@ -154,3 +154,17 @@ Start with the phone detached and an unobstructed mount. Increase speed or gain 
 - Before connecting, close ArduinoDroid and the Arduino IDE, because only one app can hold the device. If Chrome reports it cannot claim the interface, unplug and replug the Uno.
 
 **Status:** 50 unit tests pass against a mocked USB device. It has **not** been tested on the A14 or the real Uno. If WebUSB also fails on the phone, the fallback is to wrap this same web app in a small native Android shell (for example Capacitor) with the usb-serial-for-android library, which is the code ArduinoDroid-style apps rely on.
+
+
+## Phase 3.4 — Arduino Control Panel view
+
+The app now has two views in the same page:
+
+- **Camera view** (the original screen): camera, pose overlay, metrics, compatibility. A new **Arduino Control Panel** button at the top opens the panel and shows the live connection status. A **Stop servo tracking** button sits next to it so tracking can be stopped without leaving the camera screen.
+- **Arduino Control Panel**: connection status and method (WebUSB or Web Serial), Connect / Connect via WebUSB / Disconnect, a persistent last-error line, current yaw and tilt with position bars, Centre servos, Start / Stop servo tracking, manual jog controls, direction and jog-size selectors, tracking response sliders, and the servo limits table. **← Back to Camera** is in the sticky top bar and at the bottom.
+
+How switching works: nothing is torn down. The existing controls were moved, with the same element ids, into the panel, and the camera view is moved off-screen rather than hidden with `display: none`, so the `<video>` element and MediaPipe loop keep running, the serial transport stays open, and the controller keeps its angles and settings. The panel uses the URL hash `#arduino`, so the Android back gesture returns to the camera view. The scroll position of each view is restored when you return.
+
+Other small changes: the dead-zone value in the settings table is rounded (it could show 7.000000000000001%), and the overlay legend no longer hard-codes a dead-zone percentage. The overlay is not drawn while the panel is open, to save battery; detection and tracking continue.
+
+**Status:** 66 unit tests pass, including checks that every element id used by the code exists exactly once and that the moved controls are inside the panel. A scripted fake-browser run of start-up and view switching passed. It has **not** been run in a real browser or on the Galaxy A14. See `docs/ARDUINO_PANEL_TEST.md`.

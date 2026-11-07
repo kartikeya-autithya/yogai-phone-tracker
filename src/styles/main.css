@@ -103,3 +103,41 @@ code { color: var(--teal); background: #0b1410; border: 1px solid var(--line); b
 .range-control > span { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .range-control output { color: var(--ink); font-weight: 750; font-variant-numeric: tabular-nums; }
 .range-control input[type="range"] { width: 100%; accent-color: var(--teal); min-height: 24px; cursor: pointer; }
+
+/* Phase 3.4: two-view layout and Arduino Control Panel */
+.view[hidden] { display: none !important; }
+.view-inactive { position: absolute; top: 0; left: -10000px; width: min(100%, 760px); visibility: hidden; pointer-events: none; }
+.topbar-back[hidden] { display: none !important; }
+body[data-view="arduino"] .topbar h1 { display: none; }
+body[data-view="arduino"] .topbar-back { display: inline-flex; flex: 1 1 auto; align-items: center; justify-content: center; }
+.topbar-back { min-height: 40px; padding: 6px 12px; }
+.back-button { width: 100%; margin-top: 10px; }
+
+.nav-card { display: grid; gap: 9px; padding: 10px; }
+.nav-button { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; min-height: 52px; background: linear-gradient(135deg, #14261e, #0f1a15); border-color: var(--teal-d); color: var(--ink); text-align: left; }
+.nav-button:active { background: #1a3328; }
+.nav-button-label { color: var(--teal); font-size: 1rem; }
+.button:focus-visible, select:focus-visible, input[type="range"]:focus-visible, .card h2:focus-visible { outline: 2px solid var(--teal); outline-offset: 2px; }
+.card h2[tabindex="-1"]:focus { outline: none; }
+
+.conn-status { display: flex; align-items: center; gap: 12px; margin-top: 12px; padding: 11px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel-2); }
+.conn-status strong { display: block; font-size: .98rem; }
+.conn-dot { flex: 0 0 auto; width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--line); }
+.conn-dot.ok { background: #70e0a1; border-color: #367f58; box-shadow: 0 0 0 4px rgba(112, 224, 161, .15); }
+.conn-dot.off { background: #2a3a32; border-color: #3a4d43; }
+.error-banner { margin: 9px 0 0 !important; padding: 9px 11px; border: 1px solid rgba(229, 115, 115, .55); border-radius: 10px; background: rgba(229, 115, 115, .1); color: #ffb3b3; font-size: .82rem; overflow-wrap: anywhere; }
+.error-banner[hidden] { display: none; }
+
+.angle-hero { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px; }
+.angle-tile { min-width: 0; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel-2); }
+.angle-tile > span { display: block; color: var(--mute); font-size: .76rem; letter-spacing: .04em; text-transform: uppercase; }
+.angle-tile > strong { display: block; margin: 2px 0 8px; font-size: 1.9rem; line-height: 1.1; color: var(--ink); font-variant-numeric: tabular-nums; }
+.angle-tile small { display: block; margin-top: 6px; font-size: .74rem; }
+.angle-bar { position: relative; height: 8px; border-radius: 99px; background: #0b1410; border: 1px solid var(--line); --pos: 50%; }
+.angle-bar > i { position: absolute; top: 50%; left: var(--pos); width: 14px; height: 14px; transform: translate(-50%, -50%); border-radius: 50%; background: var(--teal); border: 2px solid #062018; }
+
+@media (max-width: 430px) {
+  .angle-hero { gap: 8px; }
+  .angle-tile > strong { font-size: 1.6rem; }
+  .nav-button-label { font-size: .95rem; }
+}

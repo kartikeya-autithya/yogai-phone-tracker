@@ -11,13 +11,23 @@
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
   <script type="module" src="./src/main.js"></script>
 </head>
-<body>
+<body data-view="camera">
   <header class="topbar">
-    <h1>YogAI Phone Tracker</h1>
-    <span class="badge" id="buildBadge">Phase 3.1 · Faster controls</span>
+    <h1 id="appTitle">YogAI Phone Tracker</h1>
+    <button id="backToCameraTop" class="button secondary topbar-back" type="button" hidden>← Back to Camera</button>
+    <span class="badge" id="buildBadge">Phase 3.4 · Control panel</span>
   </header>
 
-  <main class="page">
+  <!-- ============ CAMERA / TRACKING VIEW ============ -->
+  <main class="page view" id="cameraView" aria-label="Camera and tracking">
+    <section class="card nav-card" aria-label="Arduino quick access">
+      <button id="openArduinoPanel" class="button nav-button" type="button">
+        <span class="nav-button-label">Arduino Control Panel</span>
+        <span id="openArduinoPanelStatus" class="state-pill muted">NOT CONNECTED</span>
+      </button>
+      <button id="cameraStopTracking" class="button danger" type="button" disabled>Stop servo tracking</button>
+    </section>
+
     <section class="card camera-card" aria-labelledby="cameraTitle">
       <div class="section-heading">
         <div>
@@ -67,9 +77,9 @@
         <span><i class="legend-dot landmark"></i> Body landmarks</span>
         <span><i class="legend-dot person"></i> Person bounding box</span>
         <span><i class="legend-dot centre"></i> Person centre</span>
-        <span><i class="legend-box"></i> ±8% centre dead zone</span>
+        <span><i class="legend-box"></i> Centre dead zone (adjustable)</span>
       </div>
-      <p class="muted">Try standing far enough from the phone for your upper body and hips to remain visible. The first version tracks the centre of the visible pose bounding box.</p>
+      <p class="muted">Try standing far enough from the phone for your upper body and hips to remain visible. The tracker follows the centre of the visible pose bounding box.</p>
     </section>
 
     <section class="card" aria-labelledby="compatTitle">
@@ -78,13 +88,39 @@
       <ul class="cap-list" id="capList"></ul>
     </section>
 
+    <section class="card" aria-labelledby="envTitle">
+      <h2 id="envTitle">This browser</h2>
+      <p class="muted" id="envInfo"></p>
+    </section>
+  </main>
+
+  <!-- ============ ARDUINO CONTROL PANEL VIEW ============ -->
+  <main class="page view" id="arduinoView" aria-label="Arduino Control Panel" hidden>
+    <section class="card" aria-labelledby="arduinoPanelTitle">
+      <div class="section-heading">
+        <div>
+          <h2 id="arduinoPanelTitle" tabindex="-1">Arduino Control Panel</h2>
+          <p class="muted">The camera keeps running and the Arduino stays connected while you use this screen.</p>
+        </div>
+        <span id="panelTrackingState" class="state-pill muted">STOPPED</span>
+      </div>
+      <button id="backToCamera" class="button primary back-button" type="button">← Back to Camera</button>
+    </section>
+
     <section class="card" aria-labelledby="usbTitle">
       <div class="section-heading">
         <div>
-          <h2 id="usbTitle">Arduino USB connection</h2>
-          <p class="muted">Connect the already-programmed Arduino Uno using a USB data cable. On Android, use a USB-OTG adapter.</p>
+          <h2 id="usbTitle">USB connection</h2>
+          <p class="muted">Connect the already-programmed Arduino Uno with a USB data cable. On Android, use a USB-OTG adapter.</p>
         </div>
         <span id="serialState" class="state-pill muted">NOT CONNECTED</span>
+      </div>
+      <div class="conn-status" role="status" aria-live="polite">
+        <span id="panelConnDot" class="conn-dot off" aria-hidden="true"></span>
+        <div>
+          <strong id="panelConnText">Arduino not connected</strong>
+          <div id="connectionMethod" class="muted">—</div>
+        </div>
       </div>
       <div class="control-actions">
         <button id="connectArduino" class="button primary" type="button">Connect Arduino</button>
@@ -92,19 +128,41 @@
         <button id="disconnectArduino" class="button secondary" type="button" disabled>Disconnect</button>
       </div>
       <p id="serialMessage" class="camera-message info" role="status" aria-live="polite">No Arduino connection yet. Tap Connect Arduino and select the serial device.</p>
+      <p id="lastError" class="error-banner" role="alert" hidden></p>
       <p id="usbSummary" class="muted small-note"></p>
       <p id="usbOtg" class="muted small-note"></p>
       <p class="muted small-note">The website does not flash firmware. Upload <code>servo_tracker.ino</code> separately using Arduino IDE. Only connect hardware you trust.</p>
     </section>
 
     <section class="card" aria-labelledby="servoTitle">
-      <h2 id="servoTitle">Servo controls</h2>
-      <p class="muted">Test each axis with small movements before enabling automatic tracking. Keep the phone detached during initial testing.</p>
+      <h2 id="servoTitle">Servo position &amp; tracking</h2>
+      <div class="angle-hero">
+        <div class="angle-tile">
+          <span>Yaw</span>
+          <strong id="panelYaw">90°</strong>
+          <div class="angle-bar" id="panelYawBar" aria-hidden="true"><i></i></div>
+          <small id="yawLimits" class="muted">—</small>
+        </div>
+        <div class="angle-tile">
+          <span>Tilt</span>
+          <strong id="panelTilt">90°</strong>
+          <div class="angle-bar" id="panelTiltBar" aria-hidden="true"><i></i></div>
+          <small id="tiltLimits" class="muted">—</small>
+        </div>
+      </div>
       <div class="control-actions">
         <button id="centreServos" class="button secondary" type="button" disabled>Centre servos</button>
         <button id="startServoTracking" class="button primary" type="button" disabled>Start servo tracking</button>
         <button id="stopServoTracking" class="button danger" type="button" disabled>Stop servo tracking</button>
       </div>
+      <p id="trackingHint" class="muted small-note"></p>
+      <p id="servoMessage" class="camera-message info" role="status" aria-live="polite">Connect the Arduino to enable manual controls and tracking.</p>
+      <p class="muted small-note">Automatic control uses closed-loop corrections because the phone camera moves with the mount. The controller holds the last target when no person is detected or tracking is stopped.</p>
+    </section>
+
+    <section class="card" aria-labelledby="manualTitle">
+      <h2 id="manualTitle">Manual control</h2>
+      <p class="muted">Test each axis with small movements before enabling automatic tracking. Keep the phone detached during initial testing.</p>
       <div class="jog-grid">
         <div class="jog-axis">
           <strong>Yaw · Left / Right</strong>
@@ -143,9 +201,14 @@
           </select>
         </label>
       </div>
+      <p class="muted small-note">If automatic movement turns away from you, stop tracking and change that axis to Reversed. The choice is saved on this browser.</p>
+    </section>
+
+    <section class="card" aria-labelledby="responseTitle">
+      <h2 id="responseTitle">Tracking response</h2>
       <div class="response-panel">
         <div class="response-heading">
-          <strong>Tracking response</strong>
+          <strong>Speed &amp; sensitivity</strong>
           <span class="muted small-note">Changes save automatically</span>
         </div>
         <label class="range-control" for="responseSpeed">
@@ -170,19 +233,15 @@
         </label>
         <p class="muted small-note">Higher speed and sensitivity react more quickly. Higher smoothing alpha follows movement faster but can look less steady. Reduce speed if the servos chatter, vibrate or struggle. Mechanical angle limits remain enforced by the Arduino firmware.</p>
       </div>
-      <p class="muted small-note">If automatic movement turns away from you, stop tracking and change that axis to Reversed. The choice is saved on this browser.</p>
-      <p id="servoMessage" class="camera-message info" role="status" aria-live="polite">Connect the Arduino to enable manual controls and tracking.</p>
-      <p class="muted small-note">Automatic control uses closed-loop corrections because the phone camera moves with the mount. The controller holds the last target when no person is detected or tracking is stopped.</p>
     </section>
 
     <section class="card" aria-labelledby="cfgTitle">
-      <h2 id="cfgTitle">Default settings</h2>
+      <h2 id="cfgTitle">Servo limits &amp; current settings</h2>
       <div class="table-wrap"><table class="cfg-table" id="cfgTable"></table></div>
     </section>
 
-    <section class="card" aria-labelledby="envTitle">
-      <h2 id="envTitle">This browser</h2>
-      <p class="muted" id="envInfo"></p>
+    <section class="card">
+      <button id="backToCameraBottom" class="button primary back-button" type="button">← Back to Camera</button>
     </section>
   </main>
 </body>

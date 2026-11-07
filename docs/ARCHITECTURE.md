@@ -29,6 +29,8 @@ The phone camera is physically attached to the moving mount. The controller read
 | `src/app.js` | Camera, serial, manual jog and automatic tracking UI wiring | Phase 3 |
 | `src/serial/web-usb-cdc-transport.js` | WebUSB CDC-ACM transport for Android Chrome | Phase 3.3, mocked unit tested; hardware pending |
 | `src/serial/transport-selection.js` | Chooses WebUSB (Android) or Web Serial (desktop) | Phase 3.3, unit tested |
+| `src/utils/panel-helpers.js` | Pure helpers for view switching, connection text, angle bars | Phase 3.4, unit tested |
+| `index.html` views | `#cameraView` and `#arduinoView` share one page; controls keep their ids | Phase 3.4 |
 | Wi-Fi / BLE / native Android | Future transports | Not implemented |
 
 ## Serial protocol

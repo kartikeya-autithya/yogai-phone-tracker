@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0a100d" />
+  <title>YogAI Phone Tracker</title>
+  <link rel="manifest" href="./manifest.json" />
+  <link rel="icon" type="image/png" href="./icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="./icons/icon-192.png" />
+  <script type="module" src="./src/main.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <h1>YogAI Phone Tracker</h1>
+    <span class="badge" id="buildBadge">Phase 1</span>
+  </header>
+
+  <main class="page">
+    <section class="card" aria-labelledby="compatTitle">
+      <h2 id="compatTitle">Device compatibility</h2>
+      <p class="muted" id="compatIntro">Checking this browser…</p>
+      <ul class="cap-list" id="capList"></ul>
+    </section>
+
+    <section class="card" aria-labelledby="usbTitle">
+      <h2 id="usbTitle">USB connection to the Arduino</h2>
+      <p id="usbSummary"></p>
+      <p class="muted" id="usbOtg"></p>
+    </section>
+
+    <section class="card" aria-labelledby="cfgTitle">
+      <h2 id="cfgTitle">Default settings (match the firmware)</h2>
+      <div class="table-wrap">
+        <table class="cfg-table" id="cfgTable"></table>
+      </div>
+      <p class="muted" id="cfgWarnings" hidden></p>
+    </section>
+
+    <section class="card" aria-labelledby="envTitle">
+      <h2 id="envTitle">This browser</h2>
+      <p class="muted" id="envInfo"></p>
+    </section>
+  </main>
+</body>
+</html>

@@ -1,0 +1,19 @@
+{
+  "name": "yogai-phone-tracker",
+  "version": "0.1.0",
+  "description": "Mobile-first PWA that tracks a person with the phone camera (MediaPipe) and steers an Arduino servo mount.",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "scripts": {
+    "dev": "vite --host",
+    "build": "vite build",
+    "preview": "vite preview --host",
+    "test": "node --test"
+  },
+  "devDependencies": {
+    "vite": "^7.0.0"
+  }
+}
